@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+# Virtual environments
+.env
+.venv
+.chat_sessions.json
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# macOS
+.DS_Store
+
+.*cache
+
+
+
+uv.lock
+
+evaluation/results/
+scripts/
+scripts/papermill_smoke/
+scripts/papermill_rag_evaluation/
+data/processed
