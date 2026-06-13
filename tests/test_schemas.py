@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from triage_service.schemas import ComplaintInput, TriageOutput
+from services.triage_service.schemas import ComplaintInput, TriageOutput
 
 
 def test_complaint_input_requires_complaint_document() -> None:

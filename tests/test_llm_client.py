@@ -1,34 +1,31 @@
 from __future__ import annotations
 
-from triage_service.llm_client import acknowledgement_for
+import pytest
+
+import services.triage_service.llm_client as llm_client
 
 
-def test_acknowledgement_uses_critical_severity_and_flags() -> None:
-    draft = acknowledgement_for(
-        category="responsible_lending",
-        severity="critical",
-        routing="responsible_lending_specialist",
-        signals=set(),
-        flags={"responsible_lending", "AFCA_escalation_risk", "credit_file_risk"},
-        preferences=set(),
-    )
+def test_client_from_env_requires_model(monkeypatch) -> None:
+    monkeypatch.delenv("TRIAGE_LLM_MODEL", raising=False)
+    monkeypatch.delenv("REASONING_LLM_MODEL", raising=False)
 
-    assert "specialist review" in draft
-    assert "escalation concern" in draft
-    assert "credit file concern" in draft
-    assert "urgent review" in draft
+    with pytest.raises(RuntimeError, match="requires an LLM"):
+        llm_client.client_from_env()
 
 
-def test_acknowledgement_uses_high_severity() -> None:
-    draft = acknowledgement_for(
-        category="collections",
-        severity="high",
-        routing="collections_escalation",
-        signals={"financial_hardship"},
-        flags={"collections_contact"},
-        preferences={"prefers_message_or_no_phone_contact"},
-    )
+def test_client_from_env_builds_openai_client(monkeypatch) -> None:
+    captured: dict[str, str | None] = {}
 
-    assert "collections contact" in draft
-    assert "same-day review" in draft
-    assert "communication preference" in draft
+    class FakeOpenAIClient:
+        def __init__(self, model: str, reasoning_effort: str | None = None):
+            captured["model"] = model
+            captured["reasoning_effort"] = reasoning_effort
+
+    monkeypatch.setattr(llm_client, "OpenAITriageClient", FakeOpenAIClient)
+    monkeypatch.setenv("TRIAGE_LLM_MODEL", "gpt-test")
+    monkeypatch.setenv("TRIAGE_LLM_REASONING_EFFORT", "low")
+
+    client = llm_client.client_from_env()
+
+    assert isinstance(client, FakeOpenAIClient)
+    assert captured == {"model": "gpt-test", "reasoning_effort": "low"}

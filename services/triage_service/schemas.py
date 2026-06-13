@@ -79,6 +79,15 @@ class TriageLLMOutput(BaseModel):
     acknowledgement_draft: str
 
 
+class AcknowledgementJudgeOutput(BaseModel):
+    is_valid: bool
+    grounded: bool
+    coherent: bool
+    safe: bool
+    issues: list[str] = Field(default_factory=list)
+    revision_guidance: str | None = None
+
+
 class OutputMetadata(BaseModel):
     version: Version
     triage_valid: bool

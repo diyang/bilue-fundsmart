@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from triage_service.prompts import get_triage_prompt
+from services.triage_service.prompts import get_triage_prompt
 
 
 def test_prompt_versions_are_distinct() -> None:

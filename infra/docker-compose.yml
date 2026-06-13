@@ -1,0 +1,51 @@
+services:
+  triage_service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.triage_service
+    image: fundsmart-triage-service:local
+    container_name: fundsmart-triage-service
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    env_file:
+      - ../services/triage_service/.env
+    environment:
+      TRIAGE_DATABASE_URL: postgresql+psycopg://fundsmart:fundsmart@postgresql:5432/fundsmart
+      TRIAGE_DATABASE_AUTO_CREATE: "true"
+    ports:
+      - "${TRIAGE_SERVICE_PORT:-8001}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+
+  postgresql:
+    image: postgres:16-alpine
+    container_name: fundsmart-postgresql
+    environment:
+      POSTGRES_DB: fundsmart
+      POSTGRES_USER: fundsmart
+      POSTGRES_PASSWORD: fundsmart
+    ports:
+      - "5433:5432"
+    volumes:
+      - triage_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fundsmart -d fundsmart"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  triage_postgres_data:

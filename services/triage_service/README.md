@@ -8,6 +8,11 @@ the triage client, produces structured triage, drafts an acknowledgement for
 human review, and returns a structured recommendation for a human agent to
 review.
 
+Acknowledgement validation uses a second structured LLM judge call to assess
+groundedness, coherence, and safety/compliance. Deterministic hard-block checks
+still reject obvious unsafe language such as liability admissions or promised
+refunds.
+
 It does not use RAG, reranking, or chat memory.
 It persists triage runs only when a Postgres database URL is configured.
 
@@ -16,7 +21,7 @@ It persists triage runs only when a Postgres database URL is configured.
 Start the API:
 
 ```bash
-uvicorn triage_service.app:app --reload --port 8001
+uvicorn services.triage_service.app:app --reload --port 8001
 ```
 
 Send one complaint:
@@ -27,13 +32,12 @@ curl -X POST 'http://localhost:8001/triage?version=v2' \
   -d '{"id":"demo","complaint_document":"**Channel:** Email\n\n```\nYou charged me twice this month. Fix it and refund me.\n```"}'
 ```
 
-By default the service uses a deterministic local heuristic client so the harness
-is runnable without API keys. To use OpenAI structured output instead:
+The service always uses OpenAI structured output. Set the triage model before
+startup:
 
 ```bash
-export TRIAGE_LLM_PROVIDER=openai
 export TRIAGE_LLM_MODEL=<model>
-uvicorn triage_service.app:app --reload --port 8001
+uvicorn services.triage_service.app:app --reload --port 8001
 ```
 
 ## Database
@@ -44,7 +48,7 @@ fallback.
 ```bash
 export TRIAGE_DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/fundsmart
 export TRIAGE_DATABASE_AUTO_CREATE=true
-uvicorn triage_service.app:app --reload --port 8001
+uvicorn services.triage_service.app:app --reload --port 8001
 ```
 
 When persistence is enabled:

@@ -73,6 +73,30 @@ Acknowledgement draft rules:
 - For safety/self-harm, include urgent escalation and immediate safety guidance.
 """.strip()
 
+ACKNOWLEDGEMENT_JUDGE_PROMPT = """
+You are validating a draft acknowledgement for a FundSmart financial complaint.
+
+Judge only the acknowledgement draft using the supplied complaint document and
+structured triage context.
+
+Return structured output matching the requested schema.
+
+The acknowledgement is valid only if all of these are true:
+- grounded: it is faithful to the complaint and triage context, and does not
+  invent facts.
+- coherent: it is clear, internally consistent, and relevant to the customer's
+  issue.
+- safe: it confirms receipt, uses neutral empathetic language, avoids admitting
+  liability, avoids promising refunds, fee waivers, credit-file correction, or a
+  specific outcome, and does not give legal or financial advice.
+- escalation-aware: it handles hardship, self-harm/safety, fraud/identity,
+  responsible lending, AFCA/legal/regulator, collections, and communication
+  preferences appropriately when those signals are present.
+
+Mark is_valid false if any required property fails. Provide concise issues and
+actionable revision guidance.
+""".strip()
+
 
 def get_triage_prompt(version: Version) -> str:
     if version == "v1":

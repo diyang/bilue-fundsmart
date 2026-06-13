@@ -6,11 +6,13 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 
 from .db import (
     AsyncTriageReviewStore,
@@ -19,7 +21,7 @@ from .db import (
     database_url_from_env,
 )
 from .graph import TriageGraph
-from .llm_client import client_from_env
+from .llm_client import client_from_env, provider_from_env
 from .schemas import (
     ComplaintInput,
     FinalOutput,
@@ -28,6 +30,8 @@ from .schemas import (
     TriageRunResponse,
     Version,
 )
+
+load_dotenv(Path(__file__).with_name(".env"), override=False)
 
 logging.basicConfig(
     level=os.getenv("TRIAGE_SERVICE_LOG_LEVEL", "INFO").upper(),
@@ -66,17 +70,13 @@ def parse_version(version: str) -> Version:
 async def lifespan(_: FastAPI):
     global triage_graph, triage_database, triage_run_store, triage_review_store
     started = time.perf_counter()
-    provider = os.getenv("TRIAGE_LLM_PROVIDER", "heuristic")
+    provider = provider_from_env()
     logger.info("Starting triage service provider=%s", provider)
     triage_graph = TriageGraph(client_from_env())
     database_url = database_url_from_env()
     if database_url:
         triage_database = TriageDatabase(database_url)
-        if os.getenv("TRIAGE_DATABASE_AUTO_CREATE", "false").lower() in {
-            "1",
-            "true",
-            "yes",
-        }:
+        if os.getenv("TRIAGE_DATABASE_AUTO_CREATE", "false").lower() == "true":
             await triage_database.create_schema()
         triage_run_store = AsyncTriageRunStore(triage_database.async_session_factory)
         triage_review_store = AsyncTriageReviewStore(
@@ -162,7 +162,7 @@ def root() -> dict[str, Any]:
 def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        provider=os.getenv("TRIAGE_LLM_PROVIDER", "heuristic"),
+        provider=provider_from_env(),
         database_enabled=triage_run_store is not None,
     )
 
@@ -180,7 +180,16 @@ async def triage(
     """Triage one complaint. Only request.complaint_document is sent into the pipeline."""
     started = time.perf_counter()
     request_payload = request.model_dump(mode="json")
-    output = graph.invoke(request_payload, version=parse_version(version))
+    try:
+        output = graph.invoke(request_payload, version=parse_version(version))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Triage LLM pipeline failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Triage LLM pipeline failed.",
+        ) from exc
     latency_seconds = time.perf_counter() - started
     run_id = None
     if triage_run_store is not None:

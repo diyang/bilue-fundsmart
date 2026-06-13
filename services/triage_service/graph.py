@@ -6,17 +6,9 @@ import time
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import ValidationError
 
 from .llm_client import TriageClient
-from .schemas import (
-    ComplaintInput,
-    FinalOutput,
-    OutputMetadata,
-    TriageLLMOutput,
-    TriageOutput,
-    Version,
-)
+from .schemas import ComplaintInput, FinalOutput, OutputMetadata, TriageOutput, Version
 
 
 class ComplaintState(TypedDict, total=False):
@@ -24,8 +16,6 @@ class ComplaintState(TypedDict, total=False):
     complaint_request: dict[str, Any]
     normalised_complaint: ComplaintInput
     triage_output: TriageOutput
-    triage_valid: bool
-    triage_validation_errors: list[str]
     critical_risk: bool
     routing_decision: str
     sla_recommendation: str
@@ -60,8 +50,6 @@ class TriageGraph:
         builder = StateGraph(ComplaintState)
         builder.add_node("normalise_complaint", self.normalise_complaint)
         builder.add_node("triage_complaint", self.triage_complaint)
-        builder.add_node("validate_triage", self.validate_triage)
-        builder.add_node("repair_triage", self.repair_triage)
         builder.add_node("risk_safety_check", self.risk_safety_check)
         builder.add_node("set_urgent_escalation_routing", self.set_urgent_escalation_routing)
         builder.add_node("set_standard_routing", self.set_standard_routing)
@@ -70,13 +58,7 @@ class TriageGraph:
         builder.add_node("save_output", self.save_output)
         builder.add_edge(START, "normalise_complaint")
         builder.add_edge("normalise_complaint", "triage_complaint")
-        builder.add_edge("triage_complaint", "validate_triage")
-        builder.add_conditional_edges(
-            "validate_triage",
-            self.route_after_triage_validation,
-            {"risk_safety_check": "risk_safety_check", "repair_triage": "repair_triage"},
-        )
-        builder.add_edge("repair_triage", "validate_triage")
+        builder.add_edge("triage_complaint", "risk_safety_check")
         builder.add_conditional_edges(
             "risk_safety_check",
             self.route_after_risk_check,
@@ -102,52 +84,11 @@ class TriageGraph:
 
     def triage_complaint(self, state: ComplaintState) -> dict[str, Any]:
         complaint = state["normalised_complaint"]
-        try:
-            result = self.client.triage(complaint.complaint_document, state["version"])
-            return {
-                "triage_output": result.triage,
-                "acknowledgement_draft": result.acknowledgement_draft,
-            }
-        except Exception as exc:
-            errors = [*(state.get("errors") or []), str(exc)]
-            fallback = TriageLLMOutput(
-                triage=TriageOutput(
-                    category="unclear_or_other",
-                    severity="medium",
-                    recommended_routing="frontline_complaints",
-                    sla_recommendation="standard_acknowledgement",
-                    extracted_metadata=complaint.metadata,
-                    complaint_summary="The complaint could not be triaged by the configured LLM client.",
-                    reasoning=f"Fallback used after LLM error: {exc}",
-                ),
-                acknowledgement_draft="Hi, thank you for contacting FundSmart. We have received your complaint and a team member will review it and follow up with next steps.",
-            )
-            return {
-                "triage_output": fallback.triage,
-                "acknowledgement_draft": fallback.acknowledgement_draft,
-                "errors": errors,
-            }
-
-    def validate_triage(self, state: ComplaintState) -> dict[str, Any]:
-        try:
-            triage = TriageOutput.model_validate(state["triage_output"])
-            return {
-                "triage_output": triage,
-                "triage_valid": True,
-                "triage_validation_errors": [],
-            }
-        except ValidationError as exc:
-            return {
-                "triage_valid": False,
-                "triage_validation_errors": [str(exc)],
-            }
-
-    def repair_triage(self, state: ComplaintState) -> dict[str, Any]:
-        retries = state.get("retries", 0) + 1
-        if retries > 2:
-            errors = [*(state.get("errors") or []), "Triage validation failed after retries."]
-            return {"triage_valid": True, "retries": retries, "errors": errors}
-        return {"retries": retries, **self.triage_complaint(state)}
+        result = self.client.triage(complaint.complaint_document, state["version"])
+        return {
+            "triage_output": result.triage,
+            "acknowledgement_draft": result.acknowledgement_draft,
+        }
 
     def risk_safety_check(self, state: ComplaintState) -> dict[str, Any]:
         triage = state["triage_output"]
@@ -198,22 +139,55 @@ class TriageGraph:
         }
 
     def validate_acknowledgement(self, state: ComplaintState) -> dict[str, Any]:
+        complaint = state["normalised_complaint"]
+        triage = state["triage_output"]
         draft = state.get("acknowledgement_draft") or ""
+        judge = self.client.validate_acknowledgement(
+            complaint_document=complaint.complaint_document,
+            triage=triage,
+            acknowledgement_draft=draft,
+            version=state["version"],
+        )
+        hard_errors = self.hard_acknowledgement_errors(draft)
+        judge_errors = [
+            f"LLM judge issue: {issue}" for issue in judge.issues
+        ]
+        if not judge.grounded:
+            judge_errors.append("LLM judge marked acknowledgement as ungrounded.")
+        if not judge.coherent:
+            judge_errors.append("LLM judge marked acknowledgement as incoherent.")
+        if not judge.safe:
+            judge_errors.append("LLM judge marked acknowledgement as unsafe.")
+        if judge.revision_guidance:
+            judge_errors.append(f"LLM judge revision guidance: {judge.revision_guidance}")
+        errors = [*hard_errors, *judge_errors]
+        valid = judge.is_valid and judge.grounded and judge.coherent and judge.safe and not hard_errors
+        return {
+            "acknowledgement_valid": valid,
+            "acknowledgement_validation_errors": errors,
+        }
+
+    @staticmethod
+    def hard_acknowledgement_errors(draft: str) -> list[str]:
         errors: list[str] = []
         lower = draft.lower()
         if len(draft.strip()) < 40:
             errors.append("Acknowledgement is too short.")
         if "received" not in lower:
             errors.append("Acknowledgement does not confirm receipt.")
-        if "sorry" not in lower and "understand" not in lower:
-            errors.append("Acknowledgement is not empathetic enough.")
-        if any(phrase in lower for phrase in ["we will refund", "we accept liability", "we are liable"]):
+        prohibited = [
+            "we will refund",
+            "we will waive",
+            "we accept liability",
+            "we are liable",
+            "we admit",
+            "we guarantee",
+            "your credit file will be fixed",
+            "your credit file will be corrected",
+        ]
+        if any(phrase in lower for phrase in prohibited):
             errors.append("Acknowledgement may admit liability or promise an outcome.")
-        valid = not errors
-        return {
-            "acknowledgement_valid": valid,
-            "acknowledgement_validation_errors": errors,
-        }
+        return errors
 
     def revise_acknowledgement(self, state: ComplaintState) -> dict[str, Any]:
         retries = state.get("retries", 0) + 1
@@ -236,22 +210,17 @@ class TriageGraph:
             acknowledgement_draft=state["acknowledgement_draft"],
             metadata=OutputMetadata(
                 version=state["version"],
-                triage_valid=state.get("triage_valid", False),
+                triage_valid=True,
                 acknowledgement_valid=state.get("acknowledgement_valid", False),
                 retries=state.get("retries", 0),
                 critical_risk=state.get("critical_risk", False),
                 errors=state.get("errors", []),
-                triage_validation_errors=state.get("triage_validation_errors", []),
+                triage_validation_errors=[],
                 acknowledgement_validation_errors=state.get("acknowledgement_validation_errors", []),
                 input_metadata=complaint.metadata,
             ),
         )
         return {"final_output": output}
-
-    def route_after_triage_validation(self, state: ComplaintState) -> str:
-        if state.get("triage_valid") or state.get("retries", 0) >= 2:
-            return "risk_safety_check"
-        return "repair_triage"
 
     def route_after_risk_check(self, state: ComplaintState) -> str:
         if state.get("critical_risk"):
