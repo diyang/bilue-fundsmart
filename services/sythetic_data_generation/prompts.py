@@ -75,6 +75,11 @@ Use the seed guidance:
   loan, casual income, job loss, arrears, collections contact, dependent child,
   responsible lending obligations, and AFCA escalation risk.
 
+When reference_sample_cases_jsonl is provided in the user message, treat it as
+a fixed seed knowledge base. Use it to learn the expected document shape,
+realistic style, metadata duplication, and label conventions. Do not copy the
+seed complaints or reuse their customer IDs. Generate new synthetic cases.
+
 Cover shapes beyond the seeds:
 - very short complaints with minimal context
 - vague angry rants

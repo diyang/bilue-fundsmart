@@ -9,12 +9,41 @@ services:
       postgresql:
         condition: service_healthy
     env_file:
+      - ../.env
       - ../services/triage_service/.env
     environment:
       TRIAGE_DATABASE_URL: postgresql+psycopg://fundsmart:fundsmart@postgresql:5432/fundsmart
       TRIAGE_DATABASE_AUTO_CREATE: "true"
     ports:
       - "${TRIAGE_SERVICE_PORT:-8001}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+
+  sythetic_data_generation:
+    profiles:
+      - sythetic_data_generation
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.sythetic_data_generation
+    image: fundsmart-sythetic-data-generation:local
+    container_name: fundsmart-sythetic-data-generation
+    env_file:
+      - ../.env
+    environment:
+      SYNTHETIC_DATA_LLM_PROVIDER: openai
+    ports:
+      - "${SYNTHETIC_DATA_SERVICE_PORT:-8002}:8000"
     healthcheck:
       test:
         [

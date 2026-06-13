@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN python -m pip install --upgrade pip && \
+    python -m pip install \
+      "fastapi>=0.111,<1" \
+      "uvicorn[standard]>=0.30,<1" \
+      "pydantic>=2.11.4" \
+      "langchain-core>=0.3,<1" \
+      "langchain-openai>=0.3,<1" \
+      "openai>=1,<2" \
+      "python-dotenv>=1,<2"
+
+COPY services ./services
+
+EXPOSE 8000
+
+CMD ["uvicorn", "services.sythetic_data_generation.app:app", "--host", "0.0.0.0", "--port", "8000"]
