@@ -50,6 +50,7 @@ class TriageGraph:
         builder = StateGraph(ComplaintState)
         builder.add_node("normalise_complaint", self.normalise_complaint)
         builder.add_node("triage_complaint", self.triage_complaint)
+        builder.add_node("calibrate_triage_output", self.calibrate_triage_output)
         builder.add_node("risk_safety_check", self.risk_safety_check)
         builder.add_node("set_urgent_escalation_routing", self.set_urgent_escalation_routing)
         builder.add_node("set_standard_routing", self.set_standard_routing)
@@ -58,7 +59,8 @@ class TriageGraph:
         builder.add_node("save_output", self.save_output)
         builder.add_edge(START, "normalise_complaint")
         builder.add_edge("normalise_complaint", "triage_complaint")
-        builder.add_edge("triage_complaint", "risk_safety_check")
+        builder.add_edge("triage_complaint", "calibrate_triage_output")
+        builder.add_edge("calibrate_triage_output", "risk_safety_check")
         builder.add_conditional_edges(
             "risk_safety_check",
             self.route_after_risk_check,
@@ -90,6 +92,52 @@ class TriageGraph:
             "acknowledgement_draft": result.acknowledgement_draft,
         }
 
+    def calibrate_triage_output(self, state: ComplaintState) -> dict[str, Any]:
+        """Apply deterministic v2 calibration where routing policy is unambiguous."""
+        triage = state["triage_output"]
+        if state["version"] != "v2":
+            return {"triage_output": triage}
+
+        detected = {value.lower() for value in triage.detected_signals}
+        vulnerabilities = {value.lower() for value in triage.vulnerability_signals}
+        flags = {value.lower() for value in triage.regulatory_flags}
+        category = triage.category
+        severity = triage.severity
+        sla = triage.sla_recommendation
+
+        has_immediate_safety = any("self_harm" in value or "immediate_safety" in value for value in vulnerabilities | detected)
+        has_fraud_identity = category == "fraud_or_identity" or any("identity" in value or "fraud" in value for value in flags | detected)
+        has_afca_or_regulator = any("afca" in value or "legal" in value or "regulator" in value for value in flags | detected)
+        has_responsible_lending = category == "responsible_lending" or any("responsible_lending" in value for value in flags | detected)
+        has_collections_pressure = category == "collections" or any("collection" in value or "workplace_contact" in value for value in detected)
+        has_app_or_process_error = any("app" in value or "failed" in value or "error" in value or "not_recognised" in value for value in detected)
+        has_duplicate_payment = any("duplicate" in value or "two_" in value or "charged_twice" in value for value in detected)
+
+        if category == "fees_charges" and has_duplicate_payment and has_app_or_process_error:
+            category = "service_error"
+
+        if has_immediate_safety or has_fraud_identity or has_afca_or_regulator:
+            severity = "critical"
+            sla = "urgent_review"
+        elif has_responsible_lending:
+            severity = "high"
+            sla = "same_day_acknowledgement"
+        elif has_collections_pressure and not vulnerabilities and not flags:
+            severity = "medium"
+            sla = "standard_acknowledgement"
+        elif severity == "critical":
+            severity = "high"
+            sla = "same_day_acknowledgement"
+
+        calibrated = triage.model_copy(
+            update={
+                "category": category,
+                "severity": severity,
+                "sla_recommendation": sla,
+            }
+        )
+        return {"triage_output": calibrated}
+
     def risk_safety_check(self, state: ComplaintState) -> dict[str, Any]:
         triage = state["triage_output"]
         signals = {value.lower() for value in triage.vulnerability_signals}
@@ -98,7 +146,7 @@ class TriageGraph:
             triage.severity == "critical"
             or any("self_harm" in signal for signal in signals)
             or any("identity" in flag or "fraud" in flag for flag in flags)
-            or any("responsible_lending" in flag or "afca" in flag.lower() for flag in flags)
+            or any("afca" in flag or "legal" in flag or "regulator" in flag for flag in flags)
         )
         return {"critical_risk": critical}
 

@@ -40,6 +40,7 @@ services:
     container_name: fundsmart-sythetic-data-generation
     env_file:
       - ../.env
+      - ../services/sythetic_data_generation/.env
     environment:
       SYNTHETIC_DATA_LLM_PROVIDER: openai
     ports:

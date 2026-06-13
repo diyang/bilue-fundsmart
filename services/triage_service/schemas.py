@@ -64,6 +64,7 @@ class ComplaintInput(BaseModel):
 class TriageOutput(BaseModel):
     category: Category
     severity: Severity
+    detected_signals: list[str] = Field(default_factory=list)
     vulnerability_signals: list[str] = Field(default_factory=list)
     regulatory_flags: list[str] = Field(default_factory=list)
     recommended_routing: Routing

@@ -15,7 +15,6 @@ data
 evaluation/results
 sythetic_tests
 docs
-services
 rag_construction
 rag_construction_pg
 scripts

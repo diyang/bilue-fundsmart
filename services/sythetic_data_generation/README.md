@@ -15,12 +15,18 @@ labels for evaluating `services/triage_service`.
   - `expected_severity`
   - `expected_routing`
   - `expected_sla`
+  - `scenario_tags`
+  - `expected_signals`
+  - `expected_preferences`
+  - `forbidden_signals`
   - `must_detect`
   - `must_not_detect`
   - `customer_preferences`
 - Returns combined JSONL compatible with `sythetic_tests/synthetic_tests.jsonl`.
 - Returns optional split-file outputs matching
-  `synthetic_test_case_generation_spec.md`.
+  `synthetic_test_case_generation_spec.md`. New outputs include the cleaner
+  taxonomy fields while retaining `must_detect` and `must_not_detect` for
+  backward compatibility.
 - Uses fixed seed samples from `reference/sample_cases.jsonl` as a small
   service-local knowledge base.
 
@@ -62,7 +68,14 @@ The service requires an OpenAI API key and an LLM model. Configuration follows
 the repo setup pattern:
 
 - root `.env`: shared secrets such as `OPENAI_API_KEY`
-- shell env or service env: synthetic generation runtime settings
+- `services/sythetic_data_generation/.env`: synthetic generation runtime
+  settings
+
+Create the service env file:
+
+```bash
+cp services/sythetic_data_generation/.env.example services/sythetic_data_generation/.env
+```
 
 At minimum, set one of:
 
@@ -199,6 +212,57 @@ both     -> combined and split outputs
 
 The service verifies the LLM returned exactly the requested number of cases. If
 not, it returns `HTTP 502`.
+
+## Export JSONL
+
+Export the combined JSONL response to a new file:
+
+```bash
+curl -s -X POST http://localhost:8002/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "count": 5,
+    "id_prefix": "SYN-GEN",
+    "include_seed_guidance": true,
+    "coverage_matrix": true,
+    "output_mode": "both"
+  }' \
+  | jq -r '.jsonl' > sythetic_tests/synthetic_generated.jsonl
+```
+
+Append generated cases to the existing benchmark JSONL:
+
+```bash
+curl -s -X POST http://localhost:8002/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "count": 5,
+    "id_prefix": "SYN-GEN",
+    "include_seed_guidance": true,
+    "coverage_matrix": true,
+    "output_mode": "both"
+  }' \
+  | jq -r '.jsonl' >> sythetic_tests/synthetic_tests.jsonl
+```
+
+Export combined and split outputs:
+
+```bash
+curl -s -X POST http://localhost:8002/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "count": 5,
+    "id_prefix": "SYN-GEN",
+    "include_seed_guidance": true,
+    "coverage_matrix": true,
+    "output_mode": "both"
+  }' > /tmp/synthetic_response.json
+
+jq -r '.jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_generated.jsonl
+jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_complaints.jsonl
+jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > sythetic_tests/gold_labels.jsonl
+jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > sythetic_tests/synthetic_generation_notes.md
+```
 
 ## Flow
 

@@ -11,6 +11,9 @@ and optionally persists each run to PostgreSQL for later review.
 
 - Classifies complaints into FundSmart triage categories.
 - Extracts metadata from the complaint document header.
+- Extracts operational `detected_signals`, such as duplicate charges, payment
+  disputes, document upload issues, credit-file concerns, wrong-product
+  complaints, or communication preferences.
 - Detects vulnerability, regulatory, safety, fraud, collections, hardship, and
   responsible-lending signals.
 - Applies deterministic routing guardrails after LLM triage.

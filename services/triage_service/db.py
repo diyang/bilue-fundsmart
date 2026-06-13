@@ -17,10 +17,10 @@ from .schemas import FinalOutput, TriageReviewRequest, TriageReviewResponse, Tri
 logger = logging.getLogger(__name__)
 
 
-def db_uuid(value: UUID | str | None) -> str | None:
+def db_uuid(value: UUID | str | None) -> UUID | None:
     if value is None:
         return None
-    return str(value)
+    return UUID(str(value))
 
 
 def database_url_from_env() -> str | None:

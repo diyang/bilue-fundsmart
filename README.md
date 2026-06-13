@@ -80,6 +80,7 @@ Create the triage service env file:
 
 ```bash
 cp services/triage_service/.env.example services/triage_service/.env
+cp services/sythetic_data_generation/.env.example services/sythetic_data_generation/.env
 ```
 
 At minimum, set one of these model variables:
@@ -218,6 +219,55 @@ Response outputs include:
 - `gold_labels_jsonl`
 - `synthetic_generation_notes_md`
 
+Export the combined JSONL response to a new file:
+
+```bash
+curl -s -X POST http://localhost:8002/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "count": 5,
+    "id_prefix": "SYN-GEN",
+    "include_seed_guidance": true,
+    "coverage_matrix": true,
+    "output_mode": "both"
+  }' \
+  | jq -r '.jsonl' > sythetic_tests/synthetic_generated.jsonl
+```
+
+Append generated cases to the existing benchmark JSONL:
+
+```bash
+curl -s -X POST http://localhost:8002/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "count": 5,
+    "id_prefix": "SYN-GEN",
+    "include_seed_guidance": true,
+    "coverage_matrix": true,
+    "output_mode": "both"
+  }' \
+  | jq -r '.jsonl' >> sythetic_tests/synthetic_tests.jsonl
+```
+
+Export combined and split outputs:
+
+```bash
+curl -s -X POST http://localhost:8002/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "count": 5,
+    "id_prefix": "SYN-GEN",
+    "include_seed_guidance": true,
+    "coverage_matrix": true,
+    "output_mode": "both"
+  }' > /tmp/synthetic_response.json
+
+jq -r '.jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_generated.jsonl
+jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_complaints.jsonl
+jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > sythetic_tests/gold_labels.jsonl
+jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > sythetic_tests/synthetic_generation_notes.md
+```
+
 See `services/sythetic_data_generation/README.md` for request fields and output
 modes.
 
@@ -233,13 +283,16 @@ The synthetic data generation service is behind a Compose profile, so normal
 
 PostgreSQL is exposed on host port `5433` because `5432` may already be in use.
 
-Start the triage service stack:
+Start the default stack:
 
 ```bash
-docker compose --env-file .env -f infra/docker-compose.yml up -d --build triage_service
+docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 ```
 
-Service URL:
+This starts only PostgreSQL and `triage_service`. It does not start
+`sythetic_data_generation`.
+
+Triage service URL:
 
 ```text
 http://localhost:8001
@@ -251,7 +304,7 @@ Database URL from the host:
 DEFAULT_DATABASE_URL=postgresql://fundsmart:fundsmart@localhost:5433/fundsmart
 ```
 
-Start the optional synthetic data generation service:
+Start the optional synthetic data generation service with its profile:
 
 ```bash
 docker compose --profile sythetic_data_generation --env-file .env -f infra/docker-compose.yml up -d --build sythetic_data_generation
@@ -263,7 +316,7 @@ Synthetic generation service URL:
 http://localhost:8002
 ```
 
-Stop the service:
+Stop the default triage service:
 
 ```bash
 docker compose --env-file .env -f infra/docker-compose.yml stop triage_service

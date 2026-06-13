@@ -51,6 +51,10 @@ class SyntheticTestCase(BaseModel):
         "same_day_acknowledgement",
         "urgent_review",
     ]
+    scenario_tags: list[str] = Field(default_factory=list)
+    expected_signals: list[str] = Field(default_factory=list)
+    expected_preferences: list[str] = Field(default_factory=list)
+    forbidden_signals: list[str] = Field(default_factory=list)
     must_detect: list[str] = Field(default_factory=list)
     must_not_detect: list[str] = Field(default_factory=list)
     customer_preferences: list[str] = Field(default_factory=list)

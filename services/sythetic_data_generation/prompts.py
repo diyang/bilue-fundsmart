@@ -22,6 +22,10 @@ Each generated case must include:
 - expected_severity
 - expected_routing
 - expected_sla
+- scenario_tags
+- expected_signals
+- expected_preferences
+- forbidden_signals
 - must_detect
 - must_not_detect
 - customer_preferences
@@ -40,6 +44,24 @@ customer complaint body or transcript
 
 Metadata must duplicate the header values exactly where present. Missing header
 values must be null.
+
+Use the cleaner evaluation taxonomy:
+- scenario_tags: scenario shape labels, such as sarcastic_complaint,
+  routine_app_bug, multi_issue_complaint, very_short_complaint,
+  hidden_hardship_in_fee_complaint, or wrong_company_or_product.
+- expected_signals: concrete operational facts the triage service should
+  detect, such as duplicate_charge, late_fee, payment_not_recognised,
+  direct_debit_failure, document_upload_issue, credit_file_concern,
+  collections_contact, payment_arrangement_dispute, refund_request,
+  no_fundsmart_account_claimed, self_harm_signal, identity_theft,
+  responsible_lending, financial_counsellor, job_loss, reduced_income, or AFCA.
+- expected_preferences: explicit communication preferences only, such as
+  prefers_in_app_message, prefers_no_phone_contact, or prefers_email_contact.
+- forbidden_signals: signals that must not be produced for the case.
+
+For backward compatibility, must_detect should contain scenario_tags,
+expected_signals, and expected_preferences. must_not_detect should match
+forbidden_signals. customer_preferences should match expected_preferences.
 
 Allowed categories:
 - service_error

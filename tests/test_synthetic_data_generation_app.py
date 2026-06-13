@@ -41,6 +41,10 @@ def fake_case(index: int) -> SyntheticTestCase:
         expected_severity="medium",
         expected_routing="frontline_complaints",
         expected_sla="standard_acknowledgement",
+        scenario_tags=["very_short_complaint"],
+        expected_signals=["duplicate_charge", "refund_request"],
+        expected_preferences=[],
+        forbidden_signals=["financial_hardship", "responsible_lending", "self_harm"],
         must_detect=["duplicate_charge", "refund_request"],
         must_not_detect=["financial_hardship", "responsible_lending", "self_harm"],
     )
@@ -85,5 +89,9 @@ def test_generate_endpoint_returns_requested_count_and_jsonl(monkeypatch) -> Non
     assert body["cases"][0]["id"] == "SYN-TEST-001"
     assert body["cases"][0]["source"] == "synthetic"
     assert body["cases"][0]["expected_sla"] == "standard_acknowledgement"
+    assert body["cases"][0]["expected_signals"] == ["duplicate_charge", "refund_request"]
     assert "complaint_document" in body["cases"][0]
     assert "**Channel:**" in body["cases"][0]["complaint_document"]
+    gold_label = body["gold_labels_jsonl"].strip().splitlines()[0]
+    assert '"expected_signals":["duplicate_charge","refund_request"]' in gold_label
+    assert '"forbidden_signals":["financial_hardship","responsible_lending","self_harm"]' in gold_label

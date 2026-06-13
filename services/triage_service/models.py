@@ -14,6 +14,10 @@ from uuid_utils import uuid7
 TRIAGE_SCHEMA = "triage_service"
 
 
+def new_run_id() -> UUID:
+    return UUID(str(uuid7()))
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -30,7 +34,7 @@ class TriageRun(Base):
     run_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         primary_key=True,
-        default=uuid7,
+        default=new_run_id,
     )
     complaint_id: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[str] = mapped_column(Text, nullable=False)

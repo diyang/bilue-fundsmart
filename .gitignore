@@ -22,7 +22,6 @@ __pycache__/
 uv.lock
 
 evaluation/results/
-scripts/
 scripts/papermill_smoke/
 scripts/papermill_rag_evaluation/
 data/processed

@@ -16,6 +16,7 @@ class FakeTriageClient:
             triage=TriageOutput(
                 category="fees_charges",
                 severity="medium",
+                detected_signals=["duplicate_charge", "refund_request"],
                 recommended_routing="frontline_complaints",
                 sla_recommendation="standard_acknowledgement",
                 extracted_metadata={
@@ -82,4 +83,5 @@ def test_triage_endpoint_uses_complaint_document(monkeypatch) -> None:
     body = response.json()
     assert body["id"] == "CASE-1"
     assert body["triage"]["category"] == "fees_charges"
+    assert body["triage"]["detected_signals"] == ["duplicate_charge", "refund_request"]
     assert body["metadata"]["version"] == "v2"
