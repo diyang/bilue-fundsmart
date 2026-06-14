@@ -14,7 +14,7 @@
   - [2.2 Triage Service Flow](#22-triage-service-flow)
   - [2.3 Schema Design](#23-schema-design)
   - [2.4 Why The Service Is LLM-Only](#24-why-the-service-is-llm-only)
-  - [2.5 Persistence, Review, And Deployment Harness](#25-persistence-review-and-deployment-harness)
+  - [2.5 Persistence And Review](#25-persistence-and-review)
 - [3. Synthetic Data Generation](#3-synthetic-data-generation)
   - [3.1 Purpose](#31-purpose)
   - [3.2 Generation Flow](#32-generation-flow)
@@ -35,8 +35,6 @@
   - [5.6 What Changed In v2](#56-what-changed-in-v2)
 - [6. What This Proves And Does Not Prove](#6-what-this-proves-and-does-not-prove)
 - [7. Productionization And Future Work](#7-productionization-and-future-work)
-- [8. How To Reproduce](#8-how-to-reproduce)
-- [9. Repository Map](#9-repository-map)
 
 ## 0. Executive Summary
 
@@ -66,9 +64,8 @@ The repository contains:
 - `services/triage_service`: a standalone FastAPI triage service using an LLM structured-output pipeline.
 - `services/sythetic_data_generation`: a FastAPI service for batch synthetic complaint benchmark generation.
 - `sythetic_tests/`: generated complaint inputs, gold labels, and generation notes.
-- `evaluation/triage_service_evaluation.ipynb`: a Papermill-driven evaluation notebook that calls the Docker-hosted triage service.
+- `evaluation/triage_service_evaluation.ipynb`: a Papermill-driven evaluation notebook that calls the running triage service.
 - `scripts/run_triage_service_evaluation.sh`: repeatable evaluation runner with timestamped outputs.
-- `infra/docker-compose.yml`: Docker Compose harness with PostgreSQL and service containers.
 - `figures/`: matplotlib SVG charts generated from the latest evaluation run.
 
 ### 0.3 Latest Evaluation Result
@@ -145,6 +142,10 @@ Output:
 
 The key engineering point is that the output is a contract, not just a response. The fields can be evaluated deterministically and consumed downstream.
 
+Example triage result:
+
+![FundSmart triage example](figures/triage_example.png)
+
 ### 1.2 What Is Deliberately Out Of Scope
 
 The prototype does not solve:
@@ -171,9 +172,7 @@ The project has two service-level components and one evaluation harness.
 |---|---|---|
 | Triage service | `services/triage_service` | Performs LLM-based complaint triage, acknowledgement drafting, acknowledgement validation, deterministic calibration, persistence, and review storage. |
 | Synthetic data generation service | `services/sythetic_data_generation` | Generates benchmark complaint cases and gold labels in batch using fixed seed examples and a generation spec. |
-| Evaluation harness | `evaluation/triage_service_evaluation.ipynb` and `scripts/run_triage_service_evaluation.sh` | Calls the Docker-hosted triage service for v1 and v2, scores outputs, writes timestamped artifacts, and generates interpretation tables. |
-
-The default Docker Compose setup starts PostgreSQL and `triage_service`. The synthetic generation service is behind a Compose profile so normal `docker compose up` does not start it.
+| Evaluation harness | `evaluation/triage_service_evaluation.ipynb` and `scripts/run_triage_service_evaluation.sh` | Calls the running triage service for v1 and v2, scores outputs, writes timestamped artifacts, and generates interpretation tables. |
 
 ### 2.2 Triage Service Flow
 
@@ -271,7 +270,7 @@ The service uses an LLM because the complaint content is ambiguous, messy, and s
 
 There is no heuristic fallback path in the final service. The LLM is always used for semantic extraction and classification. Deterministic code is used after the LLM for policy calibration, normalization, and safety guardrails, not as an alternative classifier.
 
-### 2.5 Persistence, Review, And Deployment Harness
+### 2.5 Persistence And Review
 
 The service includes PostgreSQL persistence and review endpoints:
 
@@ -289,7 +288,7 @@ This matters because a triage system needs auditability. The prototype can recor
 - The acknowledgement validation status.
 - Human review overrides.
 
-Database schema evolution is managed with Alembic. The Docker Compose harness includes PostgreSQL with host port `5433:5432` because local port `5432` was already occupied.
+Database schema evolution is managed with Alembic so persisted triage and review records can evolve without ad hoc table changes.
 
 ## 3. Synthetic Data Generation
 
@@ -334,20 +333,7 @@ normalize IDs and source fields
 return combined JSONL, split complaint JSONL, split gold-label JSONL, and notes
 ```
 
-Fixed reference cases live at:
-
-```text
-services/sythetic_data_generation/reference/sample_cases.jsonl
-```
-
-Generated outputs can be exported to:
-
-```text
-sythetic_tests/synthetic_generated.jsonl
-sythetic_tests/synthetic_complaints.jsonl
-sythetic_tests/gold_labels.jsonl
-sythetic_tests/synthetic_generation_notes.md
-```
+Fixed reference cases are kept as a small, versioned knowledge base for generation style and label shape. Generated outputs are split into complaint inputs, gold labels, combined JSONL cases, and generation notes.
 
 ### 3.3 Representativeness Strategy
 
@@ -404,17 +390,13 @@ Synthetic data can easily become self-referential or unrealistic. The project us
 
 ### 4.1 Black-Box Evaluation Method
 
-The evaluation notebook calls the Docker-hosted triage service directly. This makes evaluation closer to runtime behavior than unit-testing internal functions.
+The evaluation notebook calls the triage service as a black box. This makes evaluation closer to runtime behavior than unit-testing internal functions.
 
 ```text
-scripts/run_triage_service_evaluation.sh
+evaluation notebook
         |
         v
-evaluation/triage_service_evaluation.ipynb
-        |
-        v
-POST http://localhost:8001/triage?version=v1
-POST http://localhost:8001/triage?version=v2
+call triage service with version=v1 and version=v2
         |
         v
 score output against gold labels
@@ -423,7 +405,7 @@ score output against gold labels
 write timestamped artifacts
 ```
 
-The latest run output is:
+The latest run output used for this report is:
 
 ```text
 evaluation/results/triage_service/papermill_runs/20260614_140520/
@@ -661,126 +643,6 @@ The next iteration should focus on real-data validation, response quality, and o
    - Score field-level precision as well as recall.
    - Add inter-annotator agreement for human labels.
    - Add acknowledgement edit distance from human-approved final responses.
-
-## 8. How To Reproduce
-
-Start the default Docker stack:
-
-```bash
-docker compose --env-file .env -f infra/docker-compose.yml up -d --build
-```
-
-Run a single v2 triage call:
-
-````bash
-curl -X POST 'http://localhost:8001/triage?version=v2' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "id": "manual-001",
-    "complaint_document": "**Channel:** Email\n**Received:** 2026-05-01 09:00 AEST\n**Customer ID:** CUST-123\n\n```\nI paid yesterday but your app says I am overdue. Please stop calling me at work and fix the account.\n```"
-  }'
-````
-
-Run the evaluation notebook through Papermill:
-
-```bash
-scripts/run_triage_service_evaluation.sh
-```
-
-Latest report figures were generated from:
-
-```text
-evaluation/results/triage_service/papermill_runs/20260614_140520/
-```
-
-Chart outputs:
-
-```text
-figures/triage_deterministic_metrics.svg
-figures/triage_end_to_end_latency.svg
-figures/triage_case_pass_matrix.svg
-figures/triage_failure_modes.svg
-figures/triage_ragas_acknowledgement.svg
-```
-
-Start the optional synthetic data generation service:
-
-```bash
-docker compose --profile sythetic_data_generation --env-file .env -f infra/docker-compose.yml up -d --build sythetic_data_generation
-```
-
-Generate and export synthetic test data:
-
-```bash
-curl -X POST http://localhost:8002/generate \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "count": 10,
-    "id_prefix": "SYN-GEN",
-    "include_seed_guidance": true,
-    "coverage_matrix": true,
-    "output_mode": "both"
-  }' > /tmp/synthetic_response.json
-
-jq -r '.jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_generated.jsonl
-jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_complaints.jsonl
-jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > sythetic_tests/gold_labels.jsonl
-jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > sythetic_tests/synthetic_generation_notes.md
-```
-
-## 9. Repository Map
-
-```text
-.
-├── README.md
-├── REPORT.md
-├── PRESENTATION.md
-├── docs/
-│   ├── Bilue_AI_Engineer_Test_Candidate_Brief.pdf
-│   └── Bilue_AI_Engineer_Test_Seed_Complaints.md
-├── services/
-│   ├── triage_service/
-│   │   ├── app.py
-│   │   ├── graph.py
-│   │   ├── llm_client.py
-│   │   ├── prompts.py
-│   │   ├── schemas.py
-│   │   ├── models.py
-│   │   └── README.md
-│   └── sythetic_data_generation/
-│       ├── app.py
-│       ├── llm_client.py
-│       ├── prompts.py
-│       ├── schemas.py
-│       ├── reference/
-│       │   └── sample_cases.jsonl
-│       └── README.md
-├── sythetic_tests/
-│   ├── synthetic_tests.jsonl
-│   ├── synthetic_generated.jsonl
-│   ├── synthetic_complaints.jsonl
-│   ├── gold_labels.jsonl
-│   └── synthetic_generation_notes.md
-├── evaluation/
-│   ├── triage_service_evaluation.ipynb
-│   └── results/
-│       └── triage_service/
-│           └── papermill_runs/
-│               └── 20260614_140520/
-├── scripts/
-│   └── run_triage_service_evaluation.sh
-├── infra/
-│   ├── Dockerfile.triage_service
-│   ├── Dockerfile.sythetic_data_generation
-│   └── docker-compose.yml
-├── alembic/
-└── figures/
-    ├── triage_deterministic_metrics.svg
-    ├── triage_end_to_end_latency.svg
-    ├── triage_case_pass_matrix.svg
-    ├── triage_failure_modes.svg
-    └── triage_ragas_acknowledgement.svg
-```
 
 ## Final Assessment
 

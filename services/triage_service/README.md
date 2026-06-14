@@ -88,6 +88,21 @@ Use `version=v1` for the baseline prompt and `version=v2` for the stronger
 prompt with explicit metadata, vulnerability, regulatory, routing, and
 acknowledgement instructions.
 
+Triage a text file through the Typer CLI from the repo root:
+
+```bash
+uv run triage send complaint.txt \
+  --channel Email \
+  --received "2026-05-01 09:00 AEST" \
+  --customer-id CUST-123 \
+  --subject "Payment showing overdue after I paid"
+```
+
+Plain `.txt` files are wrapped into the markdown `complaint_document` shape
+used by the pipeline. Files that already contain headers such as `**Channel:**`
+and `**Received:**` are sent as-is, with those headers also parsed into request
+metadata.
+
 ## Run With Docker Compose
 
 The compose stack also starts PostgreSQL on host port `5433`.

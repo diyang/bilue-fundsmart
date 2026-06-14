@@ -1,0 +1,19 @@
+**Channel:** In-app (FundSmart mobile app, messaging thread)
+**Received:** 2026-04-15 22:47 AEST
+**Customer ID:** CUST-51104
+**Thread context:** First message in a new thread. Customer has an active 5-year personal loan, 18 months in, currently up to date on payments.
+
+```
+hi. look i dont even know if this is the right place to ask. things
+have been really rough since my wife moved out in feb, im trying to
+keep up with the loan payments but between the mortgage and the two
+kids and daycare its not working. i got a pay cut at work in march
+too, nothing massive but on top of everything else its been too much.
+
+is there any way to pause the loan for a few months or make the
+repayments smaller? i dont want to miss one and wreck my credit.
+honestly i havent slept properly in weeks. ive been looking at my
+statements at 2am trying to figure it out.
+
+i dont really want to talk on the phone if that can be avoided. ty
+```

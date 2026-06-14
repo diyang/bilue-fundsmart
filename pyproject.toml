@@ -57,6 +57,7 @@ build-backend = "hatchling.build"
 packages = ["services"]
 
 [project.scripts]
+triage = "services.triage_service.cli:app"
 triage-service = "services.triage_service.app:app"
 sythetic-data-generation-service = "services.sythetic_data_generation.app:app"
 
