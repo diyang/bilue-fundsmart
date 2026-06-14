@@ -22,7 +22,7 @@ labels for evaluating `services/triage_service`.
   - `must_detect`
   - `must_not_detect`
   - `customer_preferences`
-- Returns combined JSONL compatible with `sythetic_tests/synthetic_tests.jsonl`.
+- Returns combined JSONL compatible with `data/sythetic_tests/synthetic_tests.jsonl`.
 - Returns optional split-file outputs matching
   `synthetic_test_case_generation_spec.md`. New outputs include the cleaner
   taxonomy fields while retaining `must_detect` and `must_not_detect` for
@@ -53,7 +53,7 @@ The model is instructed not to copy the seed complaints or reuse their customer
 IDs. Generated outputs should be stored outside the service, for example:
 
 ```text
-sythetic_tests/synthetic_tests.jsonl
+data/sythetic_tests/synthetic_tests.jsonl
 ```
 
 ## Prerequisites
@@ -227,7 +227,7 @@ curl -s -X POST http://localhost:8002/generate \
     "coverage_matrix": true,
     "output_mode": "both"
   }' \
-  | jq -r '.jsonl' > sythetic_tests/synthetic_generated.jsonl
+  | jq -r '.jsonl' > data/sythetic_tests/synthetic_generated.jsonl
 ```
 
 Append generated cases to the existing benchmark JSONL:
@@ -242,7 +242,7 @@ curl -s -X POST http://localhost:8002/generate \
     "coverage_matrix": true,
     "output_mode": "both"
   }' \
-  | jq -r '.jsonl' >> sythetic_tests/synthetic_tests.jsonl
+  | jq -r '.jsonl' >> data/sythetic_tests/synthetic_tests.jsonl
 ```
 
 Export combined and split outputs:
@@ -258,10 +258,10 @@ curl -s -X POST http://localhost:8002/generate \
     "output_mode": "both"
   }' > /tmp/synthetic_response.json
 
-jq -r '.jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_generated.jsonl
-jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_complaints.jsonl
-jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > sythetic_tests/gold_labels.jsonl
-jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > sythetic_tests/synthetic_generation_notes.md
+jq -r '.jsonl' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_generated.jsonl
+jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_complaints.jsonl
+jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > data/sythetic_tests/gold_labels.jsonl
+jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_generation_notes.md
 ```
 
 ## Flow
