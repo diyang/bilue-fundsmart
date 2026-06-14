@@ -12,7 +12,7 @@ triage_test_data="${TRIAGE_TEST_DATA:-${repo_root}/sythetic_tests/synthetic_gene
 triage_complaints_data="${TRIAGE_COMPLAINTS_DATA:-${repo_root}/sythetic_tests/synthetic_complaints.jsonl}"
 triage_gold_labels="${TRIAGE_GOLD_LABELS:-${repo_root}/sythetic_tests/gold_labels.jsonl}"
 triage_eval_timeout_seconds="${TRIAGE_EVAL_TIMEOUT_SECONDS:-120}"
-run_ragas_eval="${RUN_RAGAS_EVAL:-false}"
+run_ragas_eval="${RUN_RAGAS_EVAL:-true}"
 
 papermill_bin="${PAPERMILL_BIN:-${repo_root}/.venv/bin/papermill}"
 if [ ! -x "${papermill_bin}" ]; then
@@ -146,7 +146,7 @@ run_notebook \
   -p TRIAGE_COMPLAINTS_DATA "${triage_complaints_data}" \
   -p TRIAGE_GOLD_LABELS "${triage_gold_labels}" \
   -p TRIAGE_EVAL_TIMEOUT_SECONDS "${triage_eval_timeout_seconds}" \
-  -p RUN_RAGAS_EVAL true \
+  -p RUN_RAGAS_EVAL "${run_ragas_eval}" \
   -p EVALUATION_OUTPUT_DIR "${output_dir}"
 
 find "${attempts_dir}" -type f \( -name "*.attempt-*.ipynb" -o -name "*.attempt-*.log" \) -delete

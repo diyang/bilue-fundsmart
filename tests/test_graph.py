@@ -113,3 +113,27 @@ def test_v2_calibrates_responsible_lending_without_afca_to_high() -> None:
     assert output.triage.severity == "high"
     assert output.triage.recommended_routing == "responsible_lending_specialist"
     assert output.triage.sla_recommendation == "same_day_acknowledgement"
+
+
+def test_v2_routes_plain_language_self_harm_to_vulnerable_customer_team() -> None:
+    output = invoke_with_triage(
+        TriageOutput(
+            category="financial_hardship",
+            severity="high",
+            detected_signals=["repayment_pause_request", "collections_contact"],
+            vulnerability_signals=[
+                "states they are not safe tonight",
+                "suicidal thoughts about ending their life",
+                "lost job two weeks ago",
+            ],
+            recommended_routing="hardship_team",
+            sla_recommendation="same_day_acknowledgement",
+            complaint_summary="Customer is in hardship and has immediate safety risk.",
+            reasoning="The customer is in hardship and says they are not safe tonight.",
+        )
+    )
+
+    assert output.triage.category == "financial_hardship"
+    assert output.triage.severity == "critical"
+    assert output.triage.recommended_routing == "vulnerable_customer_team"
+    assert output.triage.sla_recommendation == "urgent_review"

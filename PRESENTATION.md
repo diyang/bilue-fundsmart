@@ -117,6 +117,7 @@ POST /triage
 -> normalise_complaint
 -> triage_complaint
    -> OpenAI structured output: TriageLLMOutput
+-> calibrate_triage_output
 -> risk_safety_check
 -> set_urgent_escalation_routing or set_standard_routing
 -> validate_acknowledgement
@@ -139,8 +140,15 @@ Examples:
   `legal_compliance_review`.
 - If self-harm is detected, routing is forced to `vulnerable_customer_team` and
   SLA becomes `urgent_review`.
-- If responsible lending or AFCA appears in regulatory flags, the case is
-  treated as critical risk.
+- If AFCA, legal, regulator, fraud, identity theft, or immediate safety appears,
+  the case is treated as critical risk.
+- Responsible-lending allegations route to the specialist team, but they are
+  not automatically `critical` unless there is AFCA/legal/regulator escalation
+  or serious immediate harm.
+- v2 has an additional calibration step to reduce clear over-escalation:
+  collections-only contact can be `medium`, responsible lending without AFCA can
+  remain `high`, and duplicate-payment app failures can be treated as
+  `service_error` rather than only `fees_charges`.
 
 This avoids treating the LLM response as the final source of truth for routing
 when we already know the routing rules.
@@ -518,11 +526,12 @@ It writes:
 These are written into the timestamped Papermill run directory, for example:
 
 ```text
-evaluation/results/triage_service/papermill_runs/20260613_215536/
+evaluation/results/triage_service/papermill_runs/20260613_231459/
   triage_service_evaluation_executed.ipynb
   summary.json
   case_scores.jsonl
   failures.jsonl
+  ragas_acknowledgement_scores.jsonl
 ```
 
 ## Metrics
@@ -604,18 +613,28 @@ v2 changed the instructions and guardrails:
 - Better metadata extraction instructions.
 - Clear vulnerability signal expectations.
 - Clear regulatory flag expectations.
+- Explicit `detected_signals` for operational facts.
 - Safer acknowledgement instructions.
+- Deterministic v2 calibration for clear over-escalation cases.
 - Deterministic escalation/routing guardrails after LLM output.
 - LLM acknowledgement judge plus hard-block checks.
 
-Expected improvement:
+Measured improvement after calibration:
 
-- Higher recall on hardship, responsible lending, fraud, self-harm, AFCA, and
-  collections signals.
+- Better separation between operational signals, vulnerability signals, and
+  regulatory flags.
+- Lower forbidden-signal false positives.
+- Less overuse of `critical`.
 - More consistent routing.
 - Better SLA alignment.
-- Better metadata extraction.
 - Safer acknowledgement drafts.
+
+Important presentation point for the latest measured run:
+
+> v2 is the stronger version in the latest run. It improves category accuracy,
+> routing accuracy, operational signal recall, preference recall,
+> forbidden-signal suppression, end-to-end pass rate, acknowledgement Ragas
+> scores, and latency while holding severity and metadata accuracy level.
 
 ## What I Would Show In The Presentation
 
@@ -635,12 +654,49 @@ Use three examples rather than reading the whole benchmark:
    - Why over-escalation is also a failure.
    - Why `unclear_or_other` and `frontline_complaints` are sometimes correct.
 
-Then show one failure table row where v2 still missed something, because that
-demonstrates how the harness drives the next iteration.
+Then show one failure table row where v2 still missed something. That is the
+strongest evidence that the evaluation harness is doing useful work: it does
+not just confirm the prompt is better; it shows the remaining gaps.
 
 ## Current Known Runtime Lessons
 
-One useful implementation lesson came from the evaluation run itself.
+Two useful implementation lessons came from the evaluation run itself.
+
+### Lesson 1: v2 Needed Measurement And Calibration
+
+An earlier v2 evaluation was mixed:
+
+- It improved preference recall.
+- It improved forbidden-signal suppression.
+- It improved latency.
+- But it regressed on some category, severity, and operational-signal metrics.
+
+That was useful because it showed the harness was not ceremonial. Stronger
+instructions can become too risk-sensitive and over-escalate cases unless the
+service has explicit calibration and the evaluator separates operational facts
+from scenario-shape labels.
+
+The concrete correction was adding deterministic v2 calibration and cleaning up
+the evaluator:
+
+- Collections contact without vulnerability/regulatory flags can remain
+  `medium`.
+- Responsible lending without AFCA/legal/regulator escalation can remain
+  `high`.
+- Duplicate payment caused by an app/payment-status failure should be treated
+  as a `service_error` path, even though a refund/fee signal is present.
+- Plain-language self-harm or immediate safety wording such as "not safe
+  tonight" or suicidal ideation must route to `vulnerable_customer_team`.
+- Scenario-shape tags are scored separately from operational signals.
+- Forbidden-signal scoring uses structured risk fields and ignores negated
+  labels such as `not_hardship_request`.
+
+After that iteration, the latest run
+`evaluation/results/triage_service/papermill_runs/20260613_231459/` showed v2
+ahead of v1 on category, routing, signal recall, forbidden-signal suppression,
+Ragas acknowledgement metrics, end-to-end pass rate, and latency.
+
+### Lesson 2: Black-Box Evaluation Caught Integration Failure
 
 The service was completing the LLM triage, but the API requests failed after the
 LLM call because database persistence rejected the UUID type:
@@ -863,8 +919,17 @@ v2:
 - Explicit definitions.
 - Explicit metadata extraction.
 - Explicit vulnerability/regulatory handling.
+- Explicit `detected_signals`.
 - Deterministic routing.
+- Deterministic severity/category calibration.
 - Acknowledgement judge.
+
+Speaker note:
+
+> v2 should be presented as an engineered iteration over v1. The latest run
+> shows the value of explicit schema guidance, deterministic routing/calibration,
+> and acknowledgement judging rather than relying on a basic structured-output
+> prompt.
 
 ### Slide 7: Synthetic Data
 
@@ -888,20 +953,26 @@ v2:
 
 ### Slide 9: Results
 
-Fill from latest notebook:
+Latest measured run:
+
+```text
+evaluation/results/triage_service/papermill_runs/20260613_231459/
+```
 
 | Metric | v1 | v2 | Delta |
 |---|---:|---:|---:|
-| Category accuracy | TBD | TBD | TBD |
-| Severity accuracy | TBD | TBD | TBD |
-| Routing accuracy | TBD | TBD | TBD |
-| Must-detect recall | TBD | TBD | TBD |
-| Operational signal recall | TBD | TBD | TBD |
-| Preference recall | TBD | TBD | TBD |
-| Scenario tag recall | TBD | TBD | TBD |
-| Metadata accuracy | TBD | TBD | TBD |
-| Acknowledgement safety | TBD | TBD | TBD |
-| End-to-end pass rate | TBD | TBD | TBD |
+| Category accuracy | 90.0% | 100.0% | +10.0% |
+| Severity accuracy | 90.0% | 90.0% | 0.0% |
+| Routing accuracy | 90.0% | 100.0% | +10.0% |
+| Must-detect recall | 76.8% | 90.7% | +13.9% |
+| Operational signal recall | 79.9% | 90.4% | +10.5% |
+| Preference recall | 75.0% | 100.0% | +25.0% |
+| Scenario tag recall | 30.0% | 30.0% | 0.0% |
+| No forbidden-signal rate | 80.0% | 100.0% | +20.0% |
+| Metadata accuracy | 100.0% | 100.0% | 0.0% |
+| Acknowledgement safety | 80.0% | 80.0% | 0.0% |
+| End-to-end pass rate | 0.0% | 50.0% | +50.0% |
+| Mean latency seconds | 44.437 | 25.931 | -18.506 |
 
 Presentation note:
 
@@ -909,6 +980,26 @@ Presentation note:
 > pass/fail. End-to-end pass/fail is based on category, severity, routing,
 > operational signals, preferences, forbidden structured signals, metadata, and
 > acknowledgement safety.
+
+Main result:
+
+> v2 is materially better after calibration. It keeps severity and metadata
+> accuracy level with v1, but improves category, routing, operational signal
+> recall, preference recall, forbidden-signal suppression, end-to-end pass rate,
+> acknowledgement Ragas scores, and latency.
+
+Ragas acknowledgement-only results from the same run:
+
+| Ragas acknowledgement metric | v1 | v2 | Delta |
+|---|---:|---:|---:|
+| Groundedness | 30.0% | 50.0% | +20.0% |
+| Coherence | 90.0% | 100.0% | +10.0% |
+| Safety/compliance | 90.0% | 100.0% | +10.0% |
+
+Speaker note:
+
+> Deterministic metrics judge triage. Ragas judges acknowledgement quality.
+> I would not mix them into one score.
 
 ### Slide 10: Failure Example
 
@@ -919,16 +1010,19 @@ Talk through:
 - What the complaint said.
 - What the expected label was.
 - What the model got wrong.
-- What I changed or would change next.
+- Whether it was a prompt issue, schema issue, label issue, or deterministic
+  calibration issue.
+- What changed after the evaluation exposed it.
 
 ### Slide 11: Runtime Lesson
 
-The UUID persistence issue:
+Two runtime/evaluation lessons:
 
-- LLM succeeded.
-- DB write failed.
-- Black-box evaluation caught it.
-- Fixed standard UUID conversion.
+- an earlier v2 run regressed on some triage metrics, proving the eval harness
+  was useful rather than ceremonial; after calibration, the latest run shows v2
+  ahead.
+- The UUID persistence issue: LLM succeeded, DB write failed, black-box
+  evaluation caught it, and standard UUID conversion fixed it.
 
 ### Slide 12: Next Steps
 

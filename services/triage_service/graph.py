@@ -105,7 +105,7 @@ class TriageGraph:
         severity = triage.severity
         sla = triage.sla_recommendation
 
-        has_immediate_safety = any("self_harm" in value or "immediate_safety" in value for value in vulnerabilities | detected)
+        has_immediate_safety = self.has_immediate_safety_risk(vulnerabilities | detected)
         has_fraud_identity = category == "fraud_or_identity" or any("identity" in value or "fraud" in value for value in flags | detected)
         has_afca_or_regulator = any("afca" in value or "legal" in value or "regulator" in value for value in flags | detected)
         has_responsible_lending = category == "responsible_lending" or any("responsible_lending" in value for value in flags | detected)
@@ -141,10 +141,11 @@ class TriageGraph:
     def risk_safety_check(self, state: ComplaintState) -> dict[str, Any]:
         triage = state["triage_output"]
         signals = {value.lower() for value in triage.vulnerability_signals}
+        detected = {value.lower() for value in triage.detected_signals}
         flags = {value.lower() for value in triage.regulatory_flags}
         critical = (
             triage.severity == "critical"
-            or any("self_harm" in signal for signal in signals)
+            or self.has_immediate_safety_risk(signals | detected)
             or any("identity" in flag or "fraud" in flag for flag in flags)
             or any("afca" in flag or "legal" in flag or "regulator" in flag for flag in flags)
         )
@@ -153,7 +154,10 @@ class TriageGraph:
     def set_urgent_escalation_routing(self, state: ComplaintState) -> dict[str, Any]:
         triage = state["triage_output"]
         routing = triage.recommended_routing
-        if any("self_harm" in signal.lower() for signal in triage.vulnerability_signals):
+        if self.has_immediate_safety_risk(
+            {value.lower() for value in triage.vulnerability_signals}
+            | {value.lower() for value in triage.detected_signals}
+        ):
             routing = "vulnerable_customer_team"
         elif triage.category == "fraud_or_identity":
             routing = "legal_compliance_review"
@@ -167,6 +171,25 @@ class TriageGraph:
             "routing_decision": routing,
             "sla_recommendation": "urgent_review",
         }
+
+    @staticmethod
+    def has_immediate_safety_risk(values: set[str]) -> bool:
+        safety_markers = (
+            "self_harm",
+            "self harm",
+            "suicid",
+            "not safe",
+            "unsafe",
+            "keep myself safe",
+            "can't keep myself safe",
+            "cannot keep myself safe",
+            "no way out",
+            "end it",
+            "ended it",
+            "immediate_safety",
+            "immediate safety",
+        )
+        return any(any(marker in value for marker in safety_markers) for value in values)
 
     def set_standard_routing(self, state: ComplaintState) -> dict[str, Any]:
         triage = state["triage_output"]
