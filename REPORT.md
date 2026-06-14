@@ -63,7 +63,7 @@ The repository contains:
 
 - `services/triage_service`: a standalone FastAPI triage service using an LLM structured-output pipeline.
 - `services/sythetic_data_generation`: a FastAPI service for batch synthetic complaint benchmark generation.
-- `sythetic_tests/`: generated complaint inputs, gold labels, and generation notes.
+- `data/sythetic_tests/`: generated complaint inputs, gold labels, and generation notes.
 - `evaluation/triage_service_evaluation.ipynb`: a Papermill-driven evaluation notebook that calls the running triage service.
 - `scripts/run_triage_service_evaluation.sh`: repeatable evaluation runner with timestamped outputs.
 - `figures/`: matplotlib SVG charts generated from the latest evaluation run.

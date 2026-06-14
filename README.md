@@ -169,10 +169,10 @@ curl -s -X POST http://localhost:8002/generate \
     "output_mode": "both"
   }' > /tmp/synthetic_response.json
 
-jq -r '.jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_generated.jsonl
-jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_complaints.jsonl
-jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > sythetic_tests/gold_labels.jsonl
-jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > sythetic_tests/synthetic_generation_notes.md
+jq -r '.jsonl' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_generated.jsonl
+jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_complaints.jsonl
+jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > data/sythetic_tests/gold_labels.jsonl
+jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_generation_notes.md
 ```
 
 Stop only the synthetic data service:
