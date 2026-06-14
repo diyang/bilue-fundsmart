@@ -150,13 +150,23 @@ pipeline.
 
 ## Run Synthetic Data Generation
 
-Start the optional synthetic data generation service:
+The synthetic data generation service is optional and is behind a Docker
+Compose profile, so the normal triage stack does not start it.
+
+Start or rebuild the synthetic data generation service:
 
 ```bash
 docker compose --profile sythetic_data_generation --env-file .env -f infra/docker-compose.yml up -d --build sythetic_data_generation
 ```
 
-Generate 10 cases and export all useful artifacts:
+Check it is reachable:
+
+```bash
+curl http://localhost:8002/health
+```
+
+Generate a batch of synthetic complaints. Change `count` to control the batch
+size:
 
 ```bash
 curl -s -X POST http://localhost:8002/generate \
@@ -168,12 +178,25 @@ curl -s -X POST http://localhost:8002/generate \
     "coverage_matrix": true,
     "output_mode": "both"
   }' > /tmp/synthetic_response.json
-
-jq -r '.jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_generated.jsonl
-jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > sythetic_tests/synthetic_complaints.jsonl
-jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > sythetic_tests/gold_labels.jsonl
-jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > sythetic_tests/synthetic_generation_notes.md
 ```
+
+Export the generated batch into the benchmark data folder:
+
+```bash
+mkdir -p data/sythetic_tests
+
+jq -r '.jsonl' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_generated.jsonl
+jq -r '.synthetic_complaints_jsonl' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_complaints.jsonl
+jq -r '.gold_labels_jsonl' /tmp/synthetic_response.json > data/sythetic_tests/gold_labels.jsonl
+jq -r '.synthetic_generation_notes_md' /tmp/synthetic_response.json > data/sythetic_tests/synthetic_generation_notes.md
+```
+
+The files are:
+
+- `data/sythetic_tests/synthetic_generated.jsonl`: combined complaint and gold-label records.
+- `data/sythetic_tests/synthetic_complaints.jsonl`: complaint inputs for evaluation.
+- `data/sythetic_tests/gold_labels.jsonl`: expected labels for evaluation.
+- `data/sythetic_tests/synthetic_generation_notes.md`: generation notes from the LLM.
 
 Stop only the synthetic data service:
 
