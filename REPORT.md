@@ -18,14 +18,16 @@
 - [3. Synthetic Data Generation](#3-synthetic-data-generation)
   - [3.1 Purpose](#31-purpose)
   - [3.2 Generation Flow](#32-generation-flow)
-  - [3.3 Representativeness Strategy](#33-representativeness-strategy)
-  - [3.4 Label Taxonomy](#34-label-taxonomy)
-  - [3.5 Guardrails Against Bad Synthetic Data](#35-guardrails-against-bad-synthetic-data)
+  - [3.3 Synthetic Test Data Artifacts](#33-synthetic-test-data-artifacts)
+  - [3.4 Representativeness Strategy](#34-representativeness-strategy)
+  - [3.5 Label Taxonomy](#35-label-taxonomy)
+  - [3.6 Guardrails Against Bad Synthetic Data](#36-guardrails-against-bad-synthetic-data)
 - [4. Evaluation Harness](#4-evaluation-harness)
-  - [4.1 Black-Box Evaluation Method](#41-black-box-evaluation-method)
-  - [4.2 Metrics](#42-metrics)
-  - [4.3 End-To-End Pass Definition](#43-end-to-end-pass-definition)
-  - [4.4 Ragas Acknowledgement Evaluation](#44-ragas-acknowledgement-evaluation)
+  - [4.1 Synthetic Evaluation Dataset](#41-synthetic-evaluation-dataset)
+  - [4.2 Black-Box Evaluation Method](#42-black-box-evaluation-method)
+  - [4.3 Metrics](#43-metrics)
+  - [4.4 End-To-End Pass Definition](#44-end-to-end-pass-definition)
+  - [4.5 Ragas Acknowledgement Evaluation](#45-ragas-acknowledgement-evaluation)
 - [5. Results And Iteration](#5-results-and-iteration)
   - [5.1 Deterministic Triage Results](#51-deterministic-triage-results)
   - [5.2 Case-Level Results](#52-case-level-results)
@@ -335,7 +337,41 @@ return combined JSONL, split complaint JSONL, split gold-label JSONL, and notes
 
 Fixed reference cases are kept as a small, versioned knowledge base for generation style and label shape. Generated outputs are split into complaint inputs, gold labels, combined JSONL cases, and generation notes.
 
-### 3.3 Representativeness Strategy
+### 3.3 Synthetic Test Data Artifacts
+
+The generated benchmark data lives under `data/sythetic_tests`. It is organized
+as evaluation data rather than application configuration.
+
+| File | Role In The Harness | Why It Matters |
+|---|---|---|
+| `synthetic_generated.jsonl` | Combined JSONL where each line contains the complaint document and its expected labels. | Useful as a portable all-in-one benchmark record and for manual inspection. |
+| `synthetic_complaints.jsonl` | Complaint-only input records sent to the triage service. | Prevents label leakage into the LLM pipeline during evaluation. |
+| `gold_labels.jsonl` | Expected category, severity, routing, SLA, metadata, expected signals, preferences, forbidden signals, and scenario tags. | Gives the evaluator a deterministic ground truth contract. |
+| `synthetic_generation_notes.md` | Human-readable generation notes describing the generated batch and coverage intent. | Supports auditability and helps decide whether a batch is suitable for regression testing. |
+
+This split is important because it mirrors how a real evaluation harness should
+work: the service receives only the complaint input, while the evaluator holds
+the answer key separately. It also makes the test suite easier to extend. New
+synthetic batches can be reviewed at the combined-record level, then evaluated
+using the split complaint and gold-label files.
+
+The artifacts encode several benchmark features:
+
+- **Input realism:** each complaint uses the same `complaint_document` shape as
+  production-style intake, including visible metadata headers and body text.
+- **Gold-label completeness:** each case carries expected category, severity,
+  routing, SLA, metadata, signals, preferences, and forbidden signals.
+- **Scenario coverage:** `scenario_tags` preserve why a case exists without
+  forcing the triage schema to output scenario labels.
+- **Signal-level scoring:** expected signals and preferences allow field-level
+  recall scoring beyond high-level category accuracy.
+- **False-positive testing:** forbidden signals check that the model does not
+  invent hardship, fraud, responsible lending, or self-harm risks in cases
+  where they are absent.
+- **Audit trail:** generation notes document the batch intent, which is useful
+  when comparing runs or deciding whether to regenerate a benchmark.
+
+### 3.4 Representativeness Strategy
 
 The synthetic dataset is designed to be risk- and failure-mode representative, not statistically representative.
 
@@ -358,7 +394,7 @@ Coverage dimensions:
 
 The most important design point is that generation is aligned to the downstream contract. Each synthetic case is not just text. It contains gold labels for the exact fields the service is expected to produce.
 
-### 3.4 Label Taxonomy
+### 3.5 Label Taxonomy
 
 The benchmark separates scenario shape from operational triage facts.
 
@@ -374,7 +410,7 @@ The benchmark separates scenario shape from operational triage facts.
 
 This split avoids a common evaluation mistake. A model should not fail an operational triage benchmark because it did not output a scenario-shape label such as `sarcasm`, unless sarcasm is explicitly part of the downstream schema.
 
-### 3.5 Guardrails Against Bad Synthetic Data
+### 3.6 Guardrails Against Bad Synthetic Data
 
 Synthetic data can easily become self-referential or unrealistic. The project uses several controls:
 
@@ -388,7 +424,117 @@ Synthetic data can easily become self-referential or unrealistic. The project us
 
 ## 4. Evaluation Harness
 
-### 4.1 Black-Box Evaluation Method
+### 4.1 Synthetic Evaluation Dataset
+
+The evaluation harness uses `data/sythetic_tests` as the benchmark dataset.
+This dataset is intentionally small but dense: it contains 10 synthetic
+complaint cases designed to exercise high-risk complaint-intake behavior, not
+to mimic production complaint volume.
+
+The dataset is split into:
+
+| File | Used By | Contents |
+|---|---|---|
+| `synthetic_complaints.jsonl` | Triage service input | One complaint per line, with customer-visible metadata and complaint text only. |
+| `gold_labels.jsonl` | Evaluator only | Expected category, severity, routing, SLA, required signals, forbidden signals, and customer preferences. |
+| `synthetic_generated.jsonl` | Inspection and portability | Combined complaint and gold-label record for each case. |
+| `synthetic_generation_notes.md` | Human review | Notes about generation intent and coverage. |
+
+The split matters because the service must not see the gold labels. During
+evaluation, the notebook sends only complaint inputs to the triage service and
+then compares the response against `gold_labels.jsonl`.
+
+Current category coverage:
+
+| Category | Count | What It Tests |
+|---|---:|---|
+| `service_error` | 3 | App bugs, direct debit/payment setup issues, incorrect status, document/process failures. |
+| `collections` | 2 | Collections contact, workplace or third-party contact, payment dispute, abusive or threatening language. |
+| `financial_hardship` | 2 | Hidden hardship, repayment assistance, reduced income, distress, self-harm or immediate safety risk. |
+| `responsible_lending` | 1 | Unaffordable loan allegation, casual income, financial counsellor involvement, arrears. |
+| `fraud_or_identity` | 1 | Unauthorized loan or identity theft, police report, freeze or stop debit request. |
+| `unclear_or_other` | 1 | Misdirected or wrong-company complaint with minimal actionability. |
+
+Current severity coverage:
+
+| Severity | Count | Evaluation Purpose |
+|---|---:|---|
+| `low` | 2 | Routine or misdirected matters where escalation should be avoided. |
+| `medium` | 3 | Financial impact or service failure without immediate vulnerability or regulatory urgency. |
+| `high` | 3 | Hardship, collections conduct, or responsible-lending concern requiring same-day handling. |
+| `critical` | 2 | Fraud/identity risk and immediate safety or self-harm risk requiring urgent review. |
+
+Current routing coverage:
+
+| Routing | Count | Expected Use |
+|---|---:|---|
+| `frontline_complaints` | 4 | Standard service complaints, fee/payment issues, app issues, and misdirected complaints. |
+| `collections_escalation` | 2 | Collections conduct and contact disputes. |
+| `hardship_team` | 1 | Financial hardship without immediate safety risk. |
+| `responsible_lending_specialist` | 1 | Responsible-lending or affordability allegation. |
+| `legal_compliance_review` | 1 | Fraud, identity theft, privacy, or legal/compliance risk. |
+| `vulnerable_customer_team` | 1 | Self-harm or immediate safety concern. |
+
+Current SLA coverage:
+
+| SLA | Count | Meaning |
+|---|---:|---|
+| `standard_acknowledgement` | 5 | Standard complaint acknowledgement path. |
+| `same_day_acknowledgement` | 3 | Higher urgency requiring faster acknowledgement or review. |
+| `urgent_review` | 2 | Critical risk requiring urgent handling. |
+
+Complaint input channels are also varied:
+
+| Channel | Count |
+|---|---:|
+| Email | 4 |
+| In-app messaging thread | 3 |
+| SMS | 1 |
+| App feedback form | 1 |
+| Inbound call transcript, auto-transcribed | 1 |
+
+The synthetic cases include both metadata and body text. Metadata fields in the
+current set include:
+
+- Always present: `id`, `channel`, `received`, `customer_id`, `message`.
+- Sometimes present: `subject`, `thread_context`, `agent`, `duration`, `note`.
+
+The gold labels contain required detections across several groups:
+
+| Signal Group | Examples In The Dataset |
+|---|---|
+| Payment and account operations | `payment_dispute`, `payment_allocation_dispute`, `duplicate_payment`, `direct_debit_date_issue`, `payment_method_update_failure`, `app_payment_status_error`, `refund_request`, `fee_waiver_request`. |
+| Collections conduct | `collections_contact`, `workplace_contact`, `third_party_collections_contact`, `collections_complaint`, `collections_distress`, `staff_safety_risk`, `threat_to_property`, `abusive_language`. |
+| Hardship and vulnerability | `financial_hardship`, `reduced_income`, `job_loss`, `relationship_breakdown`, `dependent_children`, `sleep_distress`, `repayment_assistance_request`, `repayment_pause_request`, `self_harm_signal`, `immediate_safety_risk`. |
+| Regulatory and lending risk | `responsible_lending`, `unaffordable_loan`, `casual_income`, `financial_counsellor`, `arrears`. |
+| Fraud and identity | `fraud_or_identity_theft`, `unauthorised_loan`, `stolen_wallet`, `police_report`, `freeze_account_request`, `stop_debits_request`. |
+| Service/app behavior | `app_crash`, `login_issue`, `routine_app_bug`, `workaround_available`, `minimal_action_required`. |
+| Customer preference and access | `prefers_email_contact`, `prefers_in_app_message`, `prefers_no_phone_contact`, `esl_style_writing`. |
+| Scenario shape | `very_short_complaint`, `sarcasm`, `multi_issue_complaint`, `hidden_hardship_in_fee_complaint`, `minimal_context`, `wrong_company_or_product`, `misdirected_complaint`. |
+
+Forbidden labels test false positives. For example, a case may explicitly say
+the customer is not asking for hardship, so `financial_hardship` must not be
+detected. The current forbidden set includes `financial_hardship`,
+`responsible_lending`, `fraud`, `self_harm`, `wrong_company_or_product`,
+`routine_service_error`, `AFCA_escalation_risk`, and collections-specific false
+positives.
+
+The 10-case benchmark matrix is:
+
+| Case | Channel | Category | Severity | Routing | SLA |
+|---|---|---|---|---|---|
+| `SYN-GEN-001` | SMS | `collections` | `medium` | `collections_escalation` | `standard_acknowledgement` |
+| `SYN-GEN-002` | Inbound call transcript | `collections` | `high` | `collections_escalation` | `same_day_acknowledgement` |
+| `SYN-GEN-003` | Email | `unclear_or_other` | `low` | `frontline_complaints` | `standard_acknowledgement` |
+| `SYN-GEN-004` | In-app messaging thread | `financial_hardship` | `high` | `hardship_team` | `same_day_acknowledgement` |
+| `SYN-GEN-005` | Email | `responsible_lending` | `high` | `responsible_lending_specialist` | `same_day_acknowledgement` |
+| `SYN-GEN-006` | Email | `service_error` | `medium` | `frontline_complaints` | `standard_acknowledgement` |
+| `SYN-GEN-007` | Email | `service_error` | `medium` | `frontline_complaints` | `standard_acknowledgement` |
+| `SYN-GEN-008` | In-app messaging thread | `fraud_or_identity` | `critical` | `legal_compliance_review` | `urgent_review` |
+| `SYN-GEN-009` | In-app messaging thread | `financial_hardship` | `critical` | `vulnerable_customer_team` | `urgent_review` |
+| `SYN-GEN-010` | App feedback form | `service_error` | `low` | `frontline_complaints` | `standard_acknowledgement` |
+
+### 4.2 Black-Box Evaluation Method
 
 The evaluation notebook calls the triage service as a black box. This makes evaluation closer to runtime behavior than unit-testing internal functions.
 
@@ -416,7 +562,7 @@ evaluation/results/triage_service/papermill_runs/20260614_140520/
   ragas_acknowledgement_scores.jsonl
 ```
 
-### 4.2 Metrics
+### 4.3 Metrics
 
 Deterministic triage metrics:
 
@@ -435,7 +581,7 @@ Deterministic triage metrics:
 | `end_to_end_pass_rate` | Strict case-level pass rate across all required deterministic checks. |
 | `mean_latency_seconds` | Mean service response time per evaluated call. |
 
-### 4.3 End-To-End Pass Definition
+### 4.4 End-To-End Pass Definition
 
 End-to-end pass rate is intentionally strict. A case passes only if all of these are true:
 
@@ -450,7 +596,7 @@ End-to-end pass rate is intentionally strict. A case passes only if all of these
 
 Scenario tags are not part of end-to-end pass/fail. Ragas acknowledgement results are also reported separately because they measure semantic response quality rather than deterministic triage correctness.
 
-### 4.4 Ragas Acknowledgement Evaluation
+### 4.5 Ragas Acknowledgement Evaluation
 
 The project uses Ragas only for acknowledgement quality evaluation. It is not used for category, severity, routing, or signal scoring.
 
