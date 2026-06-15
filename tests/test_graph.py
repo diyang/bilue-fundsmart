@@ -12,14 +12,22 @@ class StaticTriageClient:
     def __init__(self, triage: TriageOutput):
         self.triage_output = triage
 
-    def triage(self, complaint_document: str, version: str) -> TriageLLMOutput:
-        return TriageLLMOutput(
-            triage=self.triage_output,
-            acknowledgement_draft=(
-                "Hi, thank you for contacting FundSmart. We have received your "
-                "complaint and I am sorry to hear about your experience. A team "
-                "member will review the issue and follow up with next steps."
+    def triage(self, complaint_document: str, version: str):
+        return (
+            TriageLLMOutput(
+                triage=self.triage_output,
+                acknowledgement_draft=(
+                    "Hi, thank you for contacting FundSmart. We have received your "
+                    "complaint and I am sorry to hear about your experience. A team "
+                    "member will review the issue and follow up with next steps."
+                ),
             ),
+            {
+                "call": "triage",
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "total_tokens": 30,
+            },
         )
 
     def validate_acknowledgement(
@@ -28,13 +36,21 @@ class StaticTriageClient:
         triage: TriageOutput,
         acknowledgement_draft: str,
         version: str,
-    ) -> AcknowledgementJudgeOutput:
-        return AcknowledgementJudgeOutput(
-            is_valid=True,
-            grounded=True,
-            coherent=True,
-            safe=True,
-            issues=[],
+    ):
+        return (
+            AcknowledgementJudgeOutput(
+                is_valid=True,
+                grounded=True,
+                coherent=True,
+                safe=True,
+                issues=[],
+            ),
+            {
+                "call": "acknowledgement_judge",
+                "input_tokens": 5,
+                "output_tokens": 6,
+                "total_tokens": 11,
+            },
         )
 
 
@@ -71,6 +87,9 @@ def test_v2_calibrates_collections_without_risk_to_medium() -> None:
     assert output.triage.severity == "medium"
     assert output.triage.recommended_routing == "collections_escalation"
     assert output.triage.sla_recommendation == "standard_acknowledgement"
+    assert output.metadata.token_usage["totals"]["total_tokens"] == 41
+    assert "triage_complaint" in output.metadata.step_latency_seconds
+    assert output.metadata.step_invocation_counts["validate_acknowledgement"] == 1
 
 
 def test_v2_calibrates_duplicate_payment_app_error_to_service_error() -> None:

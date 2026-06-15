@@ -27,6 +27,9 @@ class ComplaintState(TypedDict, total=False):
     retries: int
     final_output: FinalOutput
     started_at: float
+    step_latency_seconds: dict[str, float]
+    step_invocation_counts: dict[str, int]
+    token_usage: dict[str, Any]
 
 
 class TriageGraph:
@@ -42,6 +45,9 @@ class TriageGraph:
             "errors": [],
             "retries": 0,
             "started_at": time.perf_counter(),
+            "step_latency_seconds": {},
+            "step_invocation_counts": {},
+            "token_usage": {"calls": [], "totals": {}},
         }
         result = self.graph.invoke(state)
         return result["final_output"]
@@ -81,22 +87,34 @@ class TriageGraph:
         return builder.compile()
 
     def normalise_complaint(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         complaint = ComplaintInput.model_validate(state["complaint_request"])
-        return {"normalised_complaint": complaint, "complaint_id": complaint.id}
+        return {
+            "normalised_complaint": complaint,
+            "complaint_id": complaint.id,
+            **self.step_metrics(state, "normalise_complaint", started),
+        }
 
     def triage_complaint(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         complaint = state["normalised_complaint"]
-        result = self.client.triage(complaint.complaint_document, state["version"])
+        result, usage = self.client.triage(complaint.complaint_document, state["version"])
         return {
             "triage_output": result.triage,
             "acknowledgement_draft": result.acknowledgement_draft,
+            "token_usage": self.add_token_usage(state, "triage_complaint", usage),
+            **self.step_metrics(state, "triage_complaint", started),
         }
 
     def calibrate_triage_output(self, state: ComplaintState) -> dict[str, Any]:
         """Apply deterministic v2 calibration where routing policy is unambiguous."""
+        started = time.perf_counter()
         triage = state["triage_output"]
         if state["version"] != "v2":
-            return {"triage_output": triage}
+            return {
+                "triage_output": triage,
+                **self.step_metrics(state, "calibrate_triage_output", started),
+            }
 
         complaint_text = state["normalised_complaint"].complaint_document.lower()
         detected = {value.lower() for value in triage.detected_signals}
@@ -153,7 +171,10 @@ class TriageGraph:
                 "detected_signals": detected_signals,
             }
         )
-        return {"triage_output": calibrated}
+        return {
+            "triage_output": calibrated,
+            **self.step_metrics(state, "calibrate_triage_output", started),
+        }
 
     @staticmethod
     def enrich_detected_signals(
@@ -215,6 +236,7 @@ class TriageGraph:
         return signals
 
     def risk_safety_check(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         triage = state["triage_output"]
         signals = {value.lower() for value in triage.vulnerability_signals}
         detected = {value.lower() for value in triage.detected_signals}
@@ -225,9 +247,13 @@ class TriageGraph:
             or any("identity" in flag or "fraud" in flag for flag in flags)
             or any("afca" in flag or "legal" in flag or "regulator" in flag for flag in flags)
         )
-        return {"critical_risk": critical}
+        return {
+            "critical_risk": critical,
+            **self.step_metrics(state, "risk_safety_check", started),
+        }
 
     def set_urgent_escalation_routing(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         triage = state["triage_output"]
         routing = triage.recommended_routing
         if self.has_immediate_safety_risk(
@@ -246,6 +272,7 @@ class TriageGraph:
             "triage_output": triage,
             "routing_decision": routing,
             "sla_recommendation": "urgent_review",
+            **self.step_metrics(state, "set_urgent_escalation_routing", started),
         }
 
     @staticmethod
@@ -268,6 +295,7 @@ class TriageGraph:
         return any(any(marker in value for marker in safety_markers) for value in values)
 
     def set_standard_routing(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         triage = state["triage_output"]
         routing = {
             "service_error": "frontline_complaints",
@@ -283,13 +311,15 @@ class TriageGraph:
             "triage_output": triage,
             "routing_decision": routing,
             "sla_recommendation": triage.sla_recommendation,
+            **self.step_metrics(state, "set_standard_routing", started),
         }
 
     def validate_acknowledgement(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         complaint = state["normalised_complaint"]
         triage = state["triage_output"]
         draft = self.normalise_acknowledgement_draft(state.get("acknowledgement_draft") or "")
-        judge = self.client.validate_acknowledgement(
+        judge, usage = self.client.validate_acknowledgement(
             complaint_document=complaint.complaint_document,
             triage=triage,
             acknowledgement_draft=draft,
@@ -313,6 +343,8 @@ class TriageGraph:
             "acknowledgement_draft": draft,
             "acknowledgement_valid": valid,
             "acknowledgement_validation_errors": errors,
+            "token_usage": self.add_token_usage(state, "validate_acknowledgement", usage),
+            **self.step_metrics(state, "validate_acknowledgement", started),
         }
 
     @staticmethod
@@ -360,9 +392,14 @@ class TriageGraph:
         return errors
 
     def revise_acknowledgement(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         retries = state.get("retries", 0) + 1
         if retries > 2:
-            return {"retries": retries, "acknowledgement_valid": True}
+            return {
+                "retries": retries,
+                "acknowledgement_valid": True,
+                **self.step_metrics(state, "revise_acknowledgement", started),
+            }
         triage = state["triage_output"]
         draft = (
             "Hi, thank you for contacting FundSmart. We have received your complaint "
@@ -370,10 +407,20 @@ class TriageGraph:
             f"review it through {triage.recommended_routing} and follow up with next steps. "
             "This acknowledgement does not determine the outcome of the complaint."
         )
-        return {"retries": retries, "acknowledgement_draft": draft}
+        return {
+            "retries": retries,
+            "acknowledgement_draft": draft,
+            **self.step_metrics(state, "revise_acknowledgement", started),
+        }
 
     def save_output(self, state: ComplaintState) -> dict[str, Any]:
+        started = time.perf_counter()
         complaint = state["normalised_complaint"]
+        step_metrics = self.step_metrics(state, "save_output", started)
+        step_latency_seconds = dict(step_metrics["step_latency_seconds"])
+        step_latency_seconds["total_graph_seconds"] = round(
+            time.perf_counter() - state["started_at"], 6
+        )
         output = FinalOutput(
             id=complaint.id,
             triage=state["triage_output"],
@@ -388,9 +435,40 @@ class TriageGraph:
                 triage_validation_errors=[],
                 acknowledgement_validation_errors=state.get("acknowledgement_validation_errors", []),
                 input_metadata=complaint.metadata,
+                step_latency_seconds=step_latency_seconds,
+                step_invocation_counts=step_metrics["step_invocation_counts"],
+                token_usage=state.get("token_usage", {"calls": [], "totals": {}}),
             ),
         )
         return {"final_output": output}
+
+    @staticmethod
+    def step_metrics(
+        state: ComplaintState, step_name: str, started: float
+    ) -> dict[str, dict[str, float] | dict[str, int]]:
+        elapsed = time.perf_counter() - started
+        latencies = dict(state.get("step_latency_seconds", {}))
+        counts = dict(state.get("step_invocation_counts", {}))
+        latencies[step_name] = round(latencies.get(step_name, 0.0) + elapsed, 6)
+        counts[step_name] = counts.get(step_name, 0) + 1
+        return {
+            "step_latency_seconds": latencies,
+            "step_invocation_counts": counts,
+        }
+
+    @staticmethod
+    def add_token_usage(
+        state: ComplaintState, step_name: str, usage: dict[str, Any]
+    ) -> dict[str, Any]:
+        token_usage = dict(state.get("token_usage", {"calls": [], "totals": {}}))
+        calls = list(token_usage.get("calls") or [])
+        call_usage = {"step": step_name, **(usage or {})}
+        calls.append(call_usage)
+
+        totals = dict(token_usage.get("totals") or {})
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            totals[key] = int(totals.get(key, 0) or 0) + int(call_usage.get(key, 0) or 0)
+        return {"calls": calls, "totals": totals}
 
     def route_after_risk_check(self, state: ComplaintState) -> str:
         if state.get("critical_risk"):

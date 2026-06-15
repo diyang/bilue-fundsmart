@@ -99,6 +99,9 @@ class OutputMetadata(BaseModel):
     triage_validation_errors: list[str] = Field(default_factory=list)
     acknowledgement_validation_errors: list[str] = Field(default_factory=list)
     input_metadata: ComplaintMetadata = Field(default_factory=ComplaintMetadata)
+    step_latency_seconds: dict[str, float] = Field(default_factory=dict)
+    step_invocation_counts: dict[str, int] = Field(default_factory=dict)
+    token_usage: dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalOutput(BaseModel):
